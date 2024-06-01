@@ -1,5 +1,44 @@
 运行时使用反射解析代码，主要用于调试使用，完全没考虑性能
 可以配合 [IngameDebugConsole](https://github.com/yasirkula/UnityIngameDebugConsole) 在unity打包后进行调试
+为 [ET](https://github.com/egametang/ET) 专门适配了拓展方法，再结合et的树形结构，可以实现运行时调用各种方法
+例如 
+```csharp
+        private static void InitGM(Scene root)
+        {
+            // 会在执行的时候把Root传进去，同时输出执行结果
+            // 一般是配合IngameDebugConsole在GM结束拷贝代码来执行
+            // 例如 "Root.GetComponent<CurrentScenesComponent>().Scene.GetComponent<BlockGame>().GetComponent<BlockCanvas>().Print()"
+            DebugLogConsole.AddCommand<string>("系统/执行脚本","", (cmd) =>
+            {
+                var exp = ExpressionParser.Default.ObjectExpression(cmd);
+                Log.Info(exp.GetInstance(new Dictionary<string, object>() { { "Root", root } }).ToString());
+            });
+
+            ExpressionParser parser = new ExpressionParser();
+            ExpressionParser.Default = parser;
+            // 第一次使用才会初始化，防止影响性能
+            ExpressionParser.InitAction += () =>
+            {
+                Regex regex = new Regex(@"\b[a-zA-Z0-9_]+\b", RegexOptions.RightToLeft);
+                foreach ((string key, Type value) in CodeTypes.Instance.GetTypes())
+                {
+                    parser.RegisterType(regex.Match(key).Value, value);
+                    if (value.IsAbstract && value.IsSealed)
+                    {
+                        parser.RegisterStaticType(value);
+                    }
+                }
+                parser.RegisterType("int", typeof(int));
+                parser.RegisterType("float", typeof(float));
+                parser.RegisterType("double", typeof(double));
+                parser.RegisterType("string", typeof(string));
+                parser.RegisterType("bool", typeof(bool));
+                parser.RegisterVariable<Scene>("Root");
+            };
+        }
+
+        
+```
 
 ```csharp
 using System.Collections.Generic;
