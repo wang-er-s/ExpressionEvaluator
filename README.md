@@ -1,92 +1,83 @@
-# Dahomey.ExpressionEvaluator
-Evaluate C# Formulas at Runtime
+运行时使用反射解析代码，主要用于调试使用，完全没考虑性能
+可以配合 [IngameDebugConsole](https://github.com/yasirkula/UnityIngameDebugConsole) 在unity打包后进行调试
 
-## Supported Platforms
-* .Net Standard 2.0. Compatible with 
-  * .Net Core 2.0+
-  * .Net Framework 4.6.1+
-  * Unity 2018.1+
-
-Dahomey.ExpressionEvaluator code does not trigger any AOT complilation. It means it can be used safely with Unity IL2CPP.
-
-## Installation
-### NuGet
-https://www.nuget.org/packages/Dahomey.ExpressionEvaluator/
-
-`Install-Package Dahomey.ExpressionEvaluator`
-
-### Compilation from source
-  1. `dotnet restore`
-  2. `dotnet pack -c Release`
-
-## Examples
-### Parse a numeric expression
 ```csharp
-ExpressionParser parser = new ExpressionParser();
-parser.RegisterVariable<int>("a");
-INumericExpression expr = parser.ParseNumericExpression("1 + a");
+using System.Collections.Generic;
+using NUnit.Framework;
 
-int a = 2;
-double result = expr.Evaluate(new Dictionary<string, object> { { "a", a } });
-Console.WriteLine(result);
-```
-The result will be:
-```csharp
-3
-```
-
-### Parse a numeric expression with member access
-```csharp
-class A
+namespace Dahomey.ExpressionEvaluator.Tests
 {
-    public B B { get; set; }
+    
+    public class AA
+    {
+        public string Print(int a)
+        {
+            return $"int {a}";
+        }
+
+        public static string StaticVal = "StaticVal";
+
+        public string Print(long a)
+        {
+            return $"long {a}";
+        }
+
+        public string Print(float a)
+        {
+            return $"float {a}";
+        }
+
+        public string Print<T>(T a)
+        {
+            return $"generic {a}";
+        }
+
+        public int Add(int a, int b)
+        {
+            return a + b;
+        }
+    }
+
+    public static class AAExtension
+    {
+        public static string ExtensionFunction(this AA aa, int a)
+        {
+            return $"extension {a}";
+        }
+    }
+    
+    public class ExpressionParserTest
+    {
+
+        [Test]
+        [TestCase("aa.Print(123)", "int 123")]
+        // f表示float
+        [TestCase("aa.Print(123f)", "float 123")]
+        // 强转
+        [TestCase("aa.Print((float)123)", "float 123")]
+        // 泛型
+        [TestCase("aa.Print<string>(\"hello\")", "generic hello")]
+        [TestCase("aa.Print(aa.Add(1,2))", "int 3")]
+        // 计算
+        [TestCase("aa.Print(2 + 3 * 2)", "int 8")]
+        // l表示long
+        [TestCase("aa.Print(2l + 3 * 2)", "long 8")]
+        // 拓展方法
+        [TestCase("aa.ExtensionFunction(123)", "extension 123")]
+        [TestCase("AA.StaticVal", "StaticVal")]
+        public void BooleanExpressionTest(string expression, string expectedValue)
+        {
+            var expressionParser = new ExpressionParser();
+            expressionParser.RegisterVariable<AA>("aa");
+            expressionParser.RegisterType("AA", typeof(AA));
+            expressionParser.RegisterType("string", typeof(string));
+            expressionParser.RegisterType("float", typeof(float));
+            expressionParser.RegisterStaticType(typeof(AAExtension));
+            IObjectExpression expr = expressionParser.ObjectExpression(expression);
+            Assert.That(expr, Is.Not.Null);
+            Assert.That(expectedValue, Is.EqualTo(expr.GetInstance(new Dictionary<string, object>() { { "aa", new AA() } })));
+        }
+    }
 }
 
-class B
-{
-    public int Id { get; set; }
-}
-
-ExpressionParser parser = new ExpressionParser();
-parser.RegisterVariable<A>("a");
-INumericExpression expr = parser.ParseNumericExpression("1 + a.B.Id");
-
-A a = new A { B = new B { Id = 12 } };
-double result = expr.Evaluate(new Dictionary<string, object> { { "a", a } });
-Console.WriteLine(result);
 ```
-The result will be:
-```csharp
-13
-```
-
-### Parse a numeric expression with array or list access
-```csharp
-ExpressionParser parser = new ExpressionParser();
-parser.RegisterVariable<List<int>>("a");
-INumericExpression expr = parser.ParseNumericExpression("1 + a[1]");
-
-List<int> a = new List<int> { 1, 2 };
-double result = expr.Evaluate(new Dictionary<string, object> { { "a", a } });
-Console.WriteLine(result);
-```
-The result will be:
-```csharp
-3
-```
-
-### Parse a numeric expression with function access
-```csharp
-Func<double, double> func = n => Math.Cos(n);
-ExpressionParser parser = new ExpressionParser();
-parser.RegisterFunction("cos", func);
-INumericExpression expr = parser.ParseNumericExpression("1 + cos(12)");
-
-double result = expr.Evaluate()
-Console.WriteLine(result);
-```
-The result will be:
-```csharp
-1.8438539587324922
-```
-
