@@ -1,4 +1,4 @@
-- 运行时使用反射解析代码，主要用于调试使用，完全没考虑性能
+- 运行时解析代码使用反射执行，主要用于调试使用，所以完全没考虑性能
 - 可以配合 [IngameDebugConsole](https://github.com/yasirkula/UnityIngameDebugConsole) 在unity打包后进行调试
 - 为 [ET](https://github.com/egametang/ET) 专门适配了拓展方法，再结合et的树形结构，可以实现运行时调用各种方法
  
