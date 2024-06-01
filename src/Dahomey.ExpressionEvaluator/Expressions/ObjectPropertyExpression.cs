@@ -15,44 +15,48 @@ namespace Dahomey.ExpressionEvaluator
     public class ObjectPropertyExpression : IObjectExpression
     {
         private IObjectExpression containingObject;
-        private PropertyInfo propertyInfo;
+        private MemberInfo memberInfo;
+        private bool isStatic;
         private readonly Func<object, object> evaluator;
 
         public Type ObjectType { get; private set; }
 
-        public ObjectPropertyExpression(IObjectExpression containingObject, PropertyInfo propertyInfo)
+        public ObjectPropertyExpression(IObjectExpression containingObject, MemberInfo memberInfo)
         {
             this.containingObject = containingObject;
-            this.propertyInfo = propertyInfo;
+            this.memberInfo = memberInfo;
 
-            Type containingObjectType = containingObject.ObjectType;
-            ObjectType = propertyInfo.PropertyType;
-
-            MethodInfo generateEvaluatorMethod = GetType()
-                .GetMethod("GenerateEvaluator", BindingFlags.NonPublic | BindingFlags.Static)
-                .MakeGenericMethod(containingObjectType, ObjectType);
-
-            Func<PropertyInfo, Func<object, object>> generateEvaluatorDelegate =
-                ReflectionHelper.CreateDelegate<PropertyInfo, Func<object, object>>(generateEvaluatorMethod);
-
-            evaluator = generateEvaluatorDelegate(propertyInfo);
+            switch (memberInfo)
+            {
+                case PropertyInfo propertyInfo:
+                    isStatic = propertyInfo.GetGetMethod().IsStatic;
+                    evaluator = (obj) => propertyInfo.GetValue(obj);
+                    this.ObjectType = propertyInfo.PropertyType;
+                    break;
+                case FieldInfo fieldInfo:
+                    isStatic = fieldInfo.IsStatic;
+                    evaluator = (obj) => fieldInfo.GetValue(obj);
+                    this.ObjectType = fieldInfo.FieldType;
+                    break;
+            }
         }
 
         public object GetInstance(Dictionary<string, object> variables)
         {
-            object containingObjectInstance = containingObject.GetInstance(variables);
-            return evaluator(containingObjectInstance);
-        }
-
-        private static Func<object, object> GenerateEvaluator<T, TP>(PropertyInfo propertyInfo)
-        {
-            Func<T, TP> propertyGetter = ReflectionHelper.CreateDelegate<T, TP>(propertyInfo);
-            return obj => propertyGetter((T)obj);
+            if (isStatic)
+            {
+                return evaluator(null);
+            }
+            else
+            {
+                object containingObjectInstance = containingObject.GetInstance(variables);
+                return evaluator(containingObjectInstance);
+            }
         }
 
         public override string ToString()
         {
-            return string.Format("{0}.{1}", containingObject, propertyInfo.Name);
+            return string.Format("{0}.{1}", containingObject, memberInfo.Name);
         }
     }
 }

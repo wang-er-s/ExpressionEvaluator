@@ -10,7 +10,7 @@ using System.Collections.Generic;
 
 namespace Dahomey.ExpressionEvaluator
 {
-    public interface INumericExpression : IExpression
+    public interface INumericExpression : IObjectExpression
     {
         double Evaluate(Dictionary<string, object> variables = null);
     }

@@ -14,9 +14,24 @@ namespace Dahomey.ExpressionEvaluator
 {
     public class NumericArithmeticExpression : INumericExpression
     {
-        public Operator Operator { get; set; }
-        public INumericExpression LeftExpr { get; set; }
-        public INumericExpression RightExpr { get; set; }
+        public Operator Operator { get; private set; }
+        public INumericExpression LeftExpr { get; private set; }
+        public INumericExpression RightExpr { get; private set; }
+
+        public NumericArithmeticExpression(INumericExpression leftExpr, Operator @operator, INumericExpression rightExpr)
+        {
+            LeftExpr = leftExpr;
+            Operator = @operator;
+            RightExpr = rightExpr;
+            if (rightExpr == null)
+            {
+                this.ObjectType = leftExpr.ObjectType;
+            }
+            else
+            {
+                this.ObjectType = ReflectionHelper.GetCalcNumberType(leftExpr.ObjectType, rightExpr.ObjectType);
+            }
+        }
 
         public double Evaluate(Dictionary<string, object> variables)
         {
@@ -73,14 +88,20 @@ namespace Dahomey.ExpressionEvaluator
                 sb.Append(LeftExpr).Append(' ');
             }
 
+            sb.Append(Operator.PrettyPrint());
+            
             if (RightExpr != null)
             {
                 sb.Append(RightExpr).Append(' ');
             }
 
-            sb.Append(Operator.PrettyPrint());
-
             return sb.ToString();
+        }
+
+        public Type ObjectType { get; private set; }
+        public object GetInstance(Dictionary<string, object> variables)
+        {
+            return Evaluate(variables);
         }
     }
 }

@@ -44,15 +44,21 @@ namespace Dahomey.ExpressionEvaluator
             {
                 sb.Append(LeftExpr).Append(' ');
             }
+            
+            sb.Append(Operator.PrettyPrint());
 
             if (RightExpr != null)
             {
                 sb.Append(RightExpr).Append(' ');
             }
 
-            sb.Append(Operator.PrettyPrint());
-
             return sb.ToString();
+        }
+
+        public Type ObjectType => typeof(bool);
+        public object GetInstance(Dictionary<string, object> variables)
+        {
+            return Evaluate(variables);
         }
     }
 }

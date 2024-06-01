@@ -9,50 +9,83 @@
 using System;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Dahomey.ExpressionEvaluator
 {
     internal enum TokenType
     {
         None,
+        /// 关键字
         Identifier,
+        /// 数字
         Number,
+        /// 字符串
         String,
         False,
         True,
+        /// [
         OpenBracket,
+        /// ]
         CloseBracket,
+        /// (
         OpenParenthesis,
+        /// )
         CloseParenthesis,
+        /// .
         Dot,
+        /// ,
         Comma,
+        /// :
         Colon,
+        /// +
         Plus,
+        /// -
         Minus,
+        /// *
         Mult,
+        /// /
         Div,
+        /// %
         Mod,
+        /// &
         BitwiseAnd,
+        /// |
         BitwiseOr,
+        /// ^
         BitwiseXor,
+        /// ~
         BitwiseComplement,
+        /// ?
         Interrogation,
+        /// &&
         And,
+        /// ||
         Or,
+        /// !
         Not,
+        /// <
         Lt,
+        /// >
         Gt,
+        /// ==
         Eq,
+        /// !=
         Ne,
+        /// <=
         Le,
+        /// >=
         Ge,
+        /// <<
         LeftShift,
+        /// >>
         RightShift,
     }
 
     internal class ExpressionLexer
     {
-        private const string NUMBER_CHARS = "0123456789.eE";
+        // u代表无符号 i-int l-long f-float d-double
+        private const string NUMBER_CHARS = "0123456789.eEuilfd";
 
         private readonly string expression;
         private int currentPos;
@@ -92,13 +125,13 @@ namespace Dahomey.ExpressionEvaluator
             }
         }
 
-        public double Number()
+        public Type Number(out double number)
         {
             string token = currentToken;
             Expect(TokenType.Number);
             try
             {
-                return double.Parse(token, CultureInfo.InvariantCulture);
+                return ReflectionHelper.GetNumberType(token, out number);
             }
             catch (Exception ex)
             {
@@ -148,6 +181,11 @@ namespace Dahomey.ExpressionEvaluator
                 return;
             }
 
+            if (this.TryScanForceTypeChange())
+            {
+                return;
+            }
+            
             if (TryScanOperatorOrPunctuation())
             {
                 return;
@@ -249,6 +287,22 @@ namespace Dahomey.ExpressionEvaluator
             }
 
             return true;
+        }
+
+        private bool TryScanForceTypeChange()
+        {
+            // if (this.currentChar != '(') return false;
+            // do
+            // {
+            //     if(this.currentChar == ' ')
+            //         continue;
+            //     sb.Append(currentChar);
+            //     this.Advance();
+            // }
+            // while (char.IsLetterOrDigit(currentChar) || currentChar == '_' || this.currentChar == ' ');
+            //
+
+            return false;
         }
 
         private bool TryScanOperatorOrPunctuation()

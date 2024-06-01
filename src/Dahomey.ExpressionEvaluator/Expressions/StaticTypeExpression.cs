@@ -11,20 +11,20 @@ using System.Collections.Generic;
 
 namespace Dahomey.ExpressionEvaluator
 {
-    public class NumericVariableExpression : INumericExpression
+    public class StaticTypeExpression : IObjectExpression
     {
         private string variableName;
-        private Type variableType;
+        public Type ObjectType { get; private set; }
 
-        public NumericVariableExpression(string variableName, Type variableType)
+        public StaticTypeExpression(string variableName, Type variableType)
         {
             this.variableName = variableName;
-            this.variableType = variableType;
+            ObjectType = variableType;
         }
 
-        public double Evaluate(Dictionary<string, object> variables)
+        public object GetInstance(Dictionary<string, object> variables)
         {
-            return Convert.ToDouble(variables[variableName]);
+            return null;
         }
 
         public override string ToString()

@@ -23,6 +23,21 @@ namespace Dahomey.ExpressionEvaluator.Expressions
         {
             Expressions = expressions;
         }
+        
+        public Func<Dictionary<string, object>, object> GetItemGetter(int index, Type itemType)
+        {
+            IExpression itemExpr = Expressions[index];
+
+            if (ReflectionHelper.IsNumber(itemType))
+            {
+                var numericExpr = (IObjectExpression)itemExpr;
+                var converter = ReflectionHelper.GenerateFromDoubleConverter(itemType);
+                return dic => converter(numericExpr.GetInstance(dic));
+            }
+            
+            IObjectExpression objectExpr = (IObjectExpression)itemExpr;
+            return dic => objectExpr.GetInstance(dic);
+        }
 
         public Func<Dictionary<string, object>, T> GetItemGetter<T>(int index)
         {
@@ -34,8 +49,7 @@ namespace Dahomey.ExpressionEvaluator.Expressions
             {
                 INumericExpression numericExpr = (INumericExpression)itemExpr;
 
-                Func<double, T> converter = ReflectionHelper.GenerateFromDoubleConverter<T>();
-                return variables => converter(numericExpr.Evaluate(variables));
+                return default;
             }
             else if (itemType == typeof(bool))
             {

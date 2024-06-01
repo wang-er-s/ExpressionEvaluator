@@ -6,6 +6,7 @@
 
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -15,9 +16,10 @@ namespace Dahomey.ExpressionEvaluator
     {
         private double value;
 
-        public NumericLiteralExpression(double value)
+        public NumericLiteralExpression(double value, Type numberType)
         {
             this.value = value;
+            ObjectType = numberType;
         }
 
         public double Evaluate(Dictionary<string, object> variables)
@@ -28,6 +30,12 @@ namespace Dahomey.ExpressionEvaluator
         public override string ToString()
         {
             return value.ToString(CultureInfo.InvariantCulture);
+        }
+        
+        public Type ObjectType { get; private set; }
+        public object GetInstance(Dictionary<string, object> variables)
+        {
+            return Evaluate(variables);
         }
     }
 }

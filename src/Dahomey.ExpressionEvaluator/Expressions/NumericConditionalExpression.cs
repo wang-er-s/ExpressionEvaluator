@@ -6,6 +6,7 @@
 
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -16,6 +17,11 @@ namespace Dahomey.ExpressionEvaluator
         public IBooleanExpression ConditionExpr { get; set; }
         public INumericExpression LeftExpr { get; set; }
         public INumericExpression RightExpr { get; set; }
+
+        public NumericConditionalExpression()
+        {
+            
+        }
 
         public double Evaluate(Dictionary<string, object> variables)
         {
@@ -28,22 +34,30 @@ namespace Dahomey.ExpressionEvaluator
 
             if (ConditionExpr != null)
             {
-                sb.Append(LeftExpr).Append(' ');
+                sb.Append(this.ConditionExpr).Append(' ');
             }
+            
+            sb.Append("?");
 
             if (LeftExpr != null)
             {
                 sb.Append(LeftExpr).Append(' ');
             }
+            
+            sb.Append(":");
 
             if (RightExpr != null)
             {
                 sb.Append(RightExpr).Append(' ');
             }
 
-            sb.Append("?:");
-
             return sb.ToString();
+        }
+        
+        public Type ObjectType => typeof(double);
+        public object GetInstance(Dictionary<string, object> variables)
+        {
+            return Evaluate(variables);
         }
     }
 }

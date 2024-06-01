@@ -9,6 +9,7 @@
 using Dahomey.ExpressionEvaluator.Expressions;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 
 namespace Dahomey.ExpressionEvaluator
@@ -17,12 +18,39 @@ namespace Dahomey.ExpressionEvaluator
     {
         private ExpressionLexer lexer;
         private Dictionary<string, Type> variableTypes = new Dictionary<string, Type>();
+        private Dictionary<string, Type> types = new Dictionary<string, Type>();
         private Dictionary<string, Delegate> functions = new Dictionary<string, Delegate>();
-        private List<Assembly> assemblies = new List<Assembly>();
+        // 用来找拓展方法的
+        private List<Type> staticTypes = new List<Type>();
+        private static ExpressionParser defaultVal;
+
+        // 为了不影响平常的性能，延迟初始化，使用的时候才会初始化
+        public static event Action InitAction;
+
+        public static ExpressionParser Default
+        {
+            get
+            {
+                if (defaultVal.variableTypes.Count <= 0)
+                {
+                    InitAction();
+                }
+                return defaultVal;
+            }
+            set
+            {
+                defaultVal = value;
+            }
+        }
 
         public void RegisterVariable(string variableName, Type variableType)
         {
             variableTypes[variableName] = variableType;
+        }
+
+        public void RegisterType(string typeName, Type type)
+        {
+            types[typeName] = type;
         }
 
         public void RegisterVariable<T>(string variableName)
@@ -35,21 +63,15 @@ namespace Dahomey.ExpressionEvaluator
             functions[functionName] = function;
         }
 
-        public void RegisterAssembly(Assembly assembly)
+        public void RegisterStaticType(Type type)
         {
-            assemblies.Add(assembly);
+            this.staticTypes.Add(type);
         }
 
-        public IBooleanExpression ParseBooleanExpression(string expression)
+        public IObjectExpression ObjectExpression(string expression)
         {
             lexer = new ExpressionLexer(expression);
-            return (IBooleanExpression)Expression();
-        }
-
-        public INumericExpression ParseNumericExpression(string expression)
-        {
-            lexer = new ExpressionLexer(expression);
-            return (INumericExpression)Expression();
+            return (IObjectExpression)Expression();
         }
 
         private IExpression Expression()
@@ -57,6 +79,7 @@ namespace Dahomey.ExpressionEvaluator
             return ConditionalExpression();
         }
 
+        // bool ? a : b
         private IExpression ConditionalExpression()
         {
             IExpression expr = LogicalOrExpression();
@@ -78,6 +101,7 @@ namespace Dahomey.ExpressionEvaluator
             return expr;
         }
 
+        // exp || exp
         private IExpression LogicalOrExpression()
         {
             IExpression expr = LogicalAndExpression();
@@ -95,6 +119,7 @@ namespace Dahomey.ExpressionEvaluator
             return expr;
         }
 
+        // exp && exp
         private IExpression LogicalAndExpression()
         {
             IExpression expr = BitwiseOrExpression();
@@ -112,40 +137,33 @@ namespace Dahomey.ExpressionEvaluator
             return expr;
         }
 
+        // exp | exp
         private IExpression BitwiseOrExpression()
         {
             IExpression expr = BitwiseXorExpression();
 
             while (lexer.Accept(TokenType.BitwiseOr))
             {
-                expr = new NumericArithmeticExpression
-                {
-                    Operator = Operator.BitwiseOr,
-                    LeftExpr = (INumericExpression)expr,
-                    RightExpr = (INumericExpression)BitwiseXorExpression()
-                };
+                expr = new NumericArithmeticExpression((INumericExpression)expr, Operator.BitwiseOr, (INumericExpression)BitwiseXorExpression());
             }
 
             return expr;
         }
 
+        // exp ^ exp
         private IExpression BitwiseXorExpression()
         {
             IExpression expr = BitwiseAndExpression();
 
             while (lexer.Accept(TokenType.BitwiseXor))
             {
-                expr = new NumericArithmeticExpression
-                {
-                    Operator = Operator.BitwiseXor,
-                    LeftExpr = (INumericExpression)expr,
-                    RightExpr = (INumericExpression)BitwiseAndExpression()
-                };
+                expr = new NumericArithmeticExpression((INumericExpression)expr, Operator.BitwiseXor, (INumericExpression)BitwiseAndExpression());
             }
 
             return expr;
         }
 
+        // exp & exp
         private IExpression BitwiseAndExpression()
         {
             IExpression expr = EqualityExpression();
@@ -153,16 +171,17 @@ namespace Dahomey.ExpressionEvaluator
             while (lexer.Accept(TokenType.BitwiseAnd))
             {
                 expr = new NumericArithmeticExpression
-                {
-                    Operator = Operator.BitwiseAnd,
-                    LeftExpr = (INumericExpression)expr,
-                    RightExpr = (INumericExpression)EqualityExpression()
-                };
+                (
+                    (INumericExpression)expr,
+                    Operator.BitwiseAnd,
+                    (INumericExpression)EqualityExpression()
+                );
             }
 
             return expr;
         }
 
+        // exp == exp   exp != exp
         private IExpression EqualityExpression()
         {
             IExpression expr = RelationalExpression();
@@ -189,6 +208,7 @@ namespace Dahomey.ExpressionEvaluator
             };
         }
 
+        // exp <= exp   exp < exp   exp >= exp   exp > exp
         private IExpression RelationalExpression()
         {
             IExpression expr = ShiftExpression();
@@ -223,6 +243,7 @@ namespace Dahomey.ExpressionEvaluator
             };
         }
 
+        // exp << exp  exp >> exp 
         private IExpression ShiftExpression()
         {
             IExpression expr = AdditiveExpression();
@@ -244,16 +265,17 @@ namespace Dahomey.ExpressionEvaluator
                 }
 
                 expr = new NumericArithmeticExpression
-                {
-                    Operator = op,
-                    LeftExpr = (INumericExpression)expr,
-                    RightExpr = (INumericExpression)AdditiveExpression()
-                };
+                (
+                    (INumericExpression)expr,
+                    op,
+                    (INumericExpression)AdditiveExpression()
+                );
             }
 
             return expr;
         }
 
+        // exp + exp  exp - exp
         private IExpression AdditiveExpression()
         {
             IExpression expr = MultiplicativeExpression();
@@ -275,16 +297,17 @@ namespace Dahomey.ExpressionEvaluator
                 }
 
                 expr = new NumericArithmeticExpression
-                {
-                    Operator = op,
-                    LeftExpr = (INumericExpression)expr,
-                    RightExpr = (INumericExpression)MultiplicativeExpression()
-                };
+                (
+                    (INumericExpression)expr,
+                    op,
+                    (INumericExpression)MultiplicativeExpression()
+                );
             }
 
             return expr;
         }
 
+        //  * / %
         private IExpression MultiplicativeExpression()
         {
             IExpression expr = UnaryExpression();
@@ -310,33 +333,34 @@ namespace Dahomey.ExpressionEvaluator
                 }
 
                 expr = new NumericArithmeticExpression
-                {
-                    Operator = op,
-                    LeftExpr = (INumericExpression)expr,
-                    RightExpr = (INumericExpression)UnaryExpression()
-                };
+                (
+                    (INumericExpression)expr,
+                    op,
+                    (INumericExpression)UnaryExpression()
+                );
             }
 
             return expr;
         }
 
+        // ~exp  !exp -exp
         private IExpression UnaryExpression()
         {
             if (lexer.Accept(TokenType.Minus))
             {
                 return new NumericArithmeticExpression
-                {
-                    Operator = Operator.Minus,
-                    LeftExpr = (INumericExpression)PrimaryExpression()
-                };
+                (
+                    (INumericExpression)PrimaryExpression(),
+                    Operator.Minus,null
+                );
             }
             else if (lexer.Accept(TokenType.BitwiseComplement))
             {
                 return new NumericArithmeticExpression
-                {
-                    Operator = Operator.BitwiseComplement,
-                    LeftExpr = (INumericExpression)PrimaryExpression()
-                };
+                (
+                    (INumericExpression)PrimaryExpression(),
+                    Operator.BitwiseComplement,null
+                );
             }
             else if (lexer.Accept(TokenType.Not))
             {
@@ -352,6 +376,7 @@ namespace Dahomey.ExpressionEvaluator
             }
         }
 
+        // 具体值
         private IExpression PrimaryExpression()
         {
             if (lexer.Peek(TokenType.OpenParenthesis))
@@ -397,14 +422,7 @@ namespace Dahomey.ExpressionEvaluator
                     throw BuildException("Cannot apply indexing with [] on expression", expr);
                 }
 
-                if (ReflectionHelper.IsNumberList(listExpr.ObjectType))
-                {
-                    expr = new NumericListElementExpression(listExpr, indexExpr);
-                }
-                else
-                {
-                    expr = new ObjectListElementExpression(listExpr, indexExpr);
-                }
+                expr = new ObjectListElementExpression(listExpr, indexExpr);
             }
 
             return expr;
@@ -417,7 +435,7 @@ namespace Dahomey.ExpressionEvaluator
             // function
             if (lexer.Peek(TokenType.OpenParenthesis))
             {
-                ListExpression argsExpr = (ListExpression)InvocationExpression();
+                ListExpression argsExpr = (ListExpression)this.ParenthesisExpression();
 
                 Delegate function;
 
@@ -426,52 +444,43 @@ namespace Dahomey.ExpressionEvaluator
                     throw BuildException("Unknown function '{0}()'", identifier);
                 }
 
-                MethodInfo methodInfo = function.Method;
-
-                if (ReflectionHelper.IsNumber(methodInfo.ReturnType))
-                {
-                    return new NumericFuncExpression(identifier, function, argsExpr);
-                }
-                else
-                {
-                    return new ObjectFuncExpression(identifier, function, argsExpr);
-                }
+                return new ObjectFuncExpression(identifier, function, argsExpr);
             }
             // variable or enum
-            else
+
+            Type identifierType;
+            // variable
+            if (this.variableTypes.TryGetValue(identifier, out identifierType))
             {
-                Type identifierType;
-                // variable
-                if (variableTypes.TryGetValue(identifier, out identifierType))
-                {
-                    if (ReflectionHelper.IsNumber(identifierType))
-                    {
-                        return new NumericVariableExpression(identifier, identifierType);
-                    }
-                    else
-                    {
-                        return new ObjectVariableExpression(identifier, identifierType);
-                    }
-                }
-                else
-                {
-                    identifierType = ReflectionHelper.GetType(assemblies, identifier);
-                    // enum
-
-                    if (identifier != null && identifierType.IsEnum)
-                    {
-                        lexer.Expect(TokenType.Dot);
-                        string enumValue = lexer.Identifier();
-
-                        Enum value = (Enum)Enum.Parse(identifierType, enumValue);
-                        return new EnumLiteralExpression(value);
-                    }
-                    else
-                    {
-                        throw BuildException(string.Format("Unknown variable '{0}'", identifier));
-                    }
-                }
+                return new ObjectVariableExpression(identifier, identifierType);
             }
+
+            // type
+            if (this.types.TryGetValue(identifier, out identifierType))
+            {
+                // 如果是枚举
+                if (identifierType.IsEnum)
+                {
+                    this.lexer.Expect(TokenType.Dot);
+                    string enumValue = this.lexer.Identifier();
+
+                    Enum value = (Enum)Enum.Parse(identifierType, enumValue);
+                    return new EnumLiteralExpression(value);
+                }
+                
+                // 如果后边跟的是) 是某个类来做强转的？
+                if (this.lexer.Peek(TokenType.CloseParenthesis))
+                {
+                    var exp = new TypeConvertExpression(identifierType);
+                    return exp;
+                }
+
+                // 否则就是个静态类型了
+                return new StaticTypeExpression(identifier, identifierType);
+
+            }
+
+            throw this.BuildException($"Unknown variable '{identifier}'");
         }
 
         private IExpression MemberExpression(IObjectExpression containingObjectExpr)
@@ -479,36 +488,54 @@ namespace Dahomey.ExpressionEvaluator
             string identifier = lexer.Identifier();
 
             // method
+            // 如果右边是(
             if (lexer.Peek(TokenType.OpenParenthesis))
             {
-                ListExpression argsExpr = (ListExpression)InvocationExpression();
-
-                MethodInfo methodInfo = containingObjectExpr.ObjectType.GetMethod(identifier);
-                Type returnType = methodInfo.ReturnType;
-
-                if (ReflectionHelper.IsNumber(returnType))
+                ListExpression argsExpr = (ListExpression)this.ParenthesisExpression();
+                Type[] parameterTypes = Type.EmptyTypes;
+                if (argsExpr.Expressions.Count > 0)
                 {
-                    return new NumericMethodExpression(containingObjectExpr, methodInfo, argsExpr);
+                    parameterTypes = new Type[argsExpr.Expressions.Count];
+                    for (int i = 0; i < argsExpr.Expressions.Count; i++)
+                    {
+                        parameterTypes[i] = (argsExpr.Expressions[i] as IObjectExpression).ObjectType;
+                    }
                 }
-                else
+
+                MethodInfo methodInfo = containingObjectExpr.ObjectType.GetMethod(identifier,
+                    BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null,
+                    parameterTypes, null);
+                if (methodInfo == null)
                 {
-                    return new ObjectMethodExpression(containingObjectExpr, methodInfo, argsExpr);
+                    methodInfo = ReflectionHelper.GetExtensionMethod(containingObjectExpr.ObjectType, this.staticTypes, identifier, parameterTypes);
                 }
+
+                return new ObjectMethodExpression(containingObjectExpr, methodInfo, argsExpr);
+            }
+            // 如果右边是< 则是泛型方法
+            if (lexer.Peek(TokenType.Lt))
+            {
+                List<Type> genericTypes = GenericExpression();
+                ListExpression argsExpr = (ListExpression)this.ParenthesisExpression();
+                Type[] parameterTypes = Type.EmptyTypes;
+                if (argsExpr.Expressions.Count > 0)
+                {
+                    parameterTypes = new Type[argsExpr.Expressions.Count];
+                    for (int i = 0; i < argsExpr.Expressions.Count; i++)
+                    {
+                        parameterTypes[i] = (argsExpr.Expressions[i] as IObjectExpression).ObjectType;
+                    }
+                }
+
+                var methodInfo = ReflectionHelper.GetGenericMethod(containingObjectExpr.ObjectType, identifier, parameterTypes, genericTypes.Count);
+                return new ObjectMethodExpression(containingObjectExpr, methodInfo.MakeGenericMethod(genericTypes.ToArray()), argsExpr);
             }
             // property
             else
             {
-                PropertyInfo propertyInfo = containingObjectExpr.ObjectType.GetProperty(identifier);
-                Type propertyType = propertyInfo.PropertyType;
-
-                if (ReflectionHelper.IsNumber(propertyType))
-                {
-                    return new NumericPropertyExpression(containingObjectExpr, propertyInfo);
-                }
-                else
-                {
-                    return new ObjectPropertyExpression(containingObjectExpr, propertyInfo);
-                }
+                MemberInfo propertyInfo = containingObjectExpr.ObjectType.GetMember(identifier,
+                    BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)[0];
+                return new ObjectPropertyExpression(containingObjectExpr, propertyInfo);
             }
         }
 
@@ -526,7 +553,8 @@ namespace Dahomey.ExpressionEvaluator
 
             if (lexer.Peek(TokenType.Number))
             {
-                return new NumericLiteralExpression(lexer.Number());
+                var numberType = lexer.Number(out var number);
+                return new NumericLiteralExpression(number, numberType);
             }
 
             if (lexer.Peek(TokenType.String))
@@ -537,11 +565,17 @@ namespace Dahomey.ExpressionEvaluator
             throw BuildException("Expected boolean, number or string literal");
         }
 
+        // 括号内的表达式
         private IExpression ParenthesizedExpression()
         {
             lexer.Expect(TokenType.OpenParenthesis);
             IExpression expr = Expression();
             lexer.Expect(TokenType.CloseParenthesis);
+            if (expr is TypeConvertExpression typeConvertExpression)
+            {
+                typeConvertExpression.Expression = (IObjectExpression)this.Expression();
+            }
+            
             return expr;
         }
 
@@ -553,7 +587,11 @@ namespace Dahomey.ExpressionEvaluator
             return expr;
         }
 
-        private IExpression InvocationExpression()
+        /// <summary>
+        /// 获取括号内的参数
+        /// </summary>
+        /// <returns></returns>
+        private IExpression ParenthesisExpression()
         {
             lexer.Expect(TokenType.OpenParenthesis);
 
@@ -574,6 +612,27 @@ namespace Dahomey.ExpressionEvaluator
             lexer.Expect(TokenType.CloseParenthesis);
 
             return argsExpr;
+        }
+
+        private List<Type> GenericExpression()
+        {
+            lexer.Expect(TokenType.Lt);
+            List<Type> types = new List<Type>();
+            
+            if (lexer.Accept(TokenType.CloseParenthesis))
+            {
+                return types;
+            }
+
+            do
+            {
+                types.Add((VariableOrFunctionExpression() as IObjectExpression).ObjectType);
+            }
+            while (lexer.Accept(TokenType.Comma));
+
+            lexer.Expect(TokenType.Gt);
+
+            return types;
         }
 
         public Exception BuildException(string message)

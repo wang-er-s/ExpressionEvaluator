@@ -6,6 +6,7 @@
 
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -28,6 +29,12 @@ namespace Dahomey.ExpressionEvaluator
         public override string ToString()
         {
             return string.Format("\"{0}\"", value);
+        }
+        
+        public Type ObjectType => typeof(string);
+        public object GetInstance(Dictionary<string, object> variables)
+        {
+            return Evaluate(variables);
         }
     }
 }

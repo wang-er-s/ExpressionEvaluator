@@ -31,5 +31,11 @@ namespace Dahomey.ExpressionEvaluator
         {
             return string.Format("{0}.{1}", enumValue.GetType().Name, enumValue.ToString());
         }
+
+        public Type ObjectType => typeof(double);
+        public object GetInstance(Dictionary<string, object> variables)
+        {
+            return Evaluate(variables);
+        }
     }
 }

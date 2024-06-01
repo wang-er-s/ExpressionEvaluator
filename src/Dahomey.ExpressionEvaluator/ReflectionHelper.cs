@@ -10,16 +10,25 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace Dahomey.ExpressionEvaluator
 {
     public static class ReflectionHelper
     {
-        public static Func<T, TP> CreateDelegate<T, TP>(PropertyInfo propertyInfo)
+        public static Func<T, TP> CreateDelegate<T, TP>(MemberInfo memberInfo)
         {
-            return (Func<T, TP>)Delegate.CreateDelegate(typeof(Func<T, TP>), propertyInfo.GetGetMethod());
-        }
+            switch (memberInfo)
+            {
+                case PropertyInfo propertyInfo:
+                    return (Func<T, TP>)Delegate.CreateDelegate(typeof(Func<T, TP>), propertyInfo.GetGetMethod());
+                case FieldInfo fieldInfo:
+                    return (obj) => (TP)fieldInfo.GetValue(obj);
+            }
 
+            return null;
+        }
+        
         public static Func<TR> CreateDelegate<TR>(MethodInfo methodInfo, object target = null)
         {
             return (Func<TR>)Delegate.CreateDelegate(typeof(Func<TR>), target, methodInfo);
@@ -150,52 +159,229 @@ namespace Dahomey.ExpressionEvaluator
             return CreateDelegate<T, double>(methodInfo);
         }
 
-        public static Func<double, T> GenerateFromDoubleConverter<T>()
+        private static Regex numberRegex = new Regex(@"([\d\.]+)(\w*)");
+
+        public static Type GetNumberType(string numberToken, out double number)
+        {
+            var match = numberRegex.Match(numberToken);
+            Type result = typeof(int);
+            number = 0;
+            if (!match.Success)
+            {
+                throw new NotSupportedException("Invalid number token: " + numberToken);
+            }
+
+            number = double.Parse(match.Groups[1].Value);
+            switch (match.Groups[2].Value)
+            {
+                case null:
+                case "":
+                    result = typeof(int);
+                    break;
+                case "ui":
+                    result = typeof(uint);
+                    break;
+                case "i":
+                    result = typeof(int);
+                    break;
+                case "f":
+                    result = typeof(float);
+                    break;
+                case "d":
+                    result = typeof(double);
+                    break;
+                case "l":
+                    result = typeof(long);
+                    break;
+                case "ul":
+                    result = typeof(ulong);
+                    break;
+                default:
+                    throw new NotSupportedException("Invalid number token: " + numberToken);
+            }
+
+            return result;
+        }
+        
+        public static IEnumerable<MethodInfo> GetExtensionMethods(this Type type, List<Type> staticTypes)
+        {
+            var query = from t in staticTypes
+                    from m in t.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                    where m.IsDefined(typeof(System.Runtime.CompilerServices.ExtensionAttribute), false)
+                    where m.GetParameters()[0].ParameterType == type
+                    select m;
+
+            return query;
+        }
+
+        public static MethodInfo GetExtensionMethod(Type type,  List<Type> staticTypes, string name)
+        {
+            return type.GetExtensionMethods(staticTypes).FirstOrDefault(m => m.Name == name);
+        }
+
+        public static MethodInfo GetExtensionMethod(Type type, List<Type> staticTypes, string name, Type[] types)
+        {
+            var methods = (from m in type.GetExtensionMethods(staticTypes)
+                where m.Name == name
+                        && m.GetParameters().Count() == types.Length + 1 // + 1 because extension method parameter (this)
+                select m).ToList();
+
+            if (!methods.Any())
+            {
+                return default(MethodInfo);
+            }
+
+            if (methods.Count() == 1)
+            {
+                return methods.First();
+            }
+
+            foreach (var methodInfo in methods)
+            {
+                var parameters = methodInfo.GetParameters();
+
+                bool found = true;
+                for (byte b = 0; b < types.Length; b++)
+                {
+                    found = true;
+                    if (parameters[b].GetType() != types[b])
+                    {
+                        found = false;
+                    }
+                }
+
+                if (found)
+                {
+                    return methodInfo;
+                }
+            }
+
+            return default(MethodInfo);
+        }
+
+        public static MethodInfo GetGenericMethod(Type type, string name, Type[] paraTypes, int genericCount)
+        {
+            var methodInfos = type.GetMethods(BindingFlags.Instance |
+                        BindingFlags.Static | BindingFlags.Public |
+                        BindingFlags.NonPublic)
+                    .Where(info =>
+                            info.Name == name && info.IsGenericMethod &&
+                            info.GetGenericArguments().Length == genericCount &&
+                            info.GetParameters().Length == paraTypes.Length).ToList();
+            // 如果只找到一个方法，那就是需要的泛型方法
+            if (methodInfos.Count == 1)
+            {
+                return methodInfos[0];
+            }
+
+            // 如果找到多个，那就选参数匹配最多的那个方法
+            int maxMatchCount = 0;
+            int targetMethod = -1;
+            for (var i = 0; i < methodInfos.Count; i++)
+            {
+                var param = methodInfos[i].GetParameters();
+                int matchCount = 0;
+                for (int j = 0; j < param.Length; j++)
+                {
+                    var paramType = param[j].ParameterType;
+                    if (paraTypes[j] == paramType)
+                    {
+                        matchCount += 10;
+                    }
+                    else if (paramType.IsGenericParameter)
+                    {
+                        matchCount++;
+                    }
+                    // 类型即不一样，也不是泛型参数，可以直接pass
+                    else
+                    {
+                        matchCount = int.MinValue;
+                        break;
+                    }
+                }
+
+                if (matchCount > maxMatchCount)
+                {
+                    targetMethod = i;
+                    maxMatchCount = matchCount;
+                }
+            }
+
+            return methodInfos[targetMethod];
+        }
+
+        public static Type GetCalcNumberType(Type type1, Type type2)
+        {
+            if (type1 == type2) return type1;
+            if (type1 == typeof(double) || type2 == typeof(double))
+            {
+                return typeof(double);
+            }
+
+            if (type1 == typeof(float) || type2 == typeof(float))
+            {
+                return typeof(float);
+            }
+
+            if (type1 == typeof(ulong) || type2 == typeof(ulong))
+            {
+                return typeof(ulong);
+            }
+
+            if (type1 == typeof(long) || type2 == typeof(long))
+            {
+                return typeof(long);
+            }
+
+            return typeof(int);
+        }
+
+        public static Func<object, object> GenerateFromDoubleConverter(Type target)
         {
             string methodName;
 
-            if (typeof(T).IsEnum)
+            if (target.IsEnum)
             {
                 // Hack: we force cast Func<double, int> to Func<double, TEnum>
                 methodName = "DoubleToInt32";
             }
-            else if (typeof(T) == typeof(sbyte))
+            else if (target == typeof(sbyte))
             {
                 methodName = "DoubleToSByte";
             }
-            else if (typeof(T) == typeof(byte))
+            else if (target == typeof(byte))
             {
                 methodName = "DoubleToByte";
             }
-            else if (typeof(T) == typeof(short))
+            else if (target == typeof(short))
             {
                 methodName = "DoubleToInt16";
             }
-            else if (typeof(T) == typeof(ushort))
+            else if (target == typeof(ushort))
             {
                 methodName = "DoubleToUInt16";
             }
-            else if (typeof(T) == typeof(int))
+            else if (target == typeof(int))
             {
                 methodName = "DoubleToInt32";
             }
-            else if (typeof(T) == typeof(uint))
+            else if (target == typeof(uint))
             {
                 methodName = "DoubleToUInt32";
             }
-            else if (typeof(T) == typeof(long))
+            else if (target == typeof(long))
             {
                 methodName = "DoubleToInt64";
             }
-            else if (typeof(T) == typeof(ulong))
+            else if (target == typeof(ulong))
             {
                 methodName = "DoubleToUInt64";
             }
-            else if (typeof(T) == typeof(float))
+            else if (target == typeof(float))
             {
                 methodName = "DoubleToSingle";
             }
-            else if (typeof(T) == typeof(double))
+            else if (target == typeof(double))
             {
                 methodName = "DoubleToDouble";
             }
@@ -205,7 +391,7 @@ namespace Dahomey.ExpressionEvaluator
             }
 
             MethodInfo methodInfo = typeof(ReflectionHelper).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
-            return CreateDelegate<double, T>(methodInfo);
+            return (doub) => methodInfo.Invoke(null, new object[] { doub });
         }
 
         private static double SByteToDouble(sbyte value)
